@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import sys
 from time import time, sleep
+from threading import Lock
 
 from topic_matcher import topic_matches_sub
 from .. import log
@@ -10,9 +11,19 @@ from ..utils import get_mac, rand_str
 callback for paho on mqtt message
 '''
 def dispatch(client, data, msg):
-    for topic, callback in data.dispatch_table.iteritems():
-        if topic_matches_sub(topic, msg.topic):
-            callback(msg.topic, str(msg.payload.decode("utf-8")))
+    cb_lst = []
+    data.dtlock.acquire()
+    try:
+        for sub, callback in data.dispatch_table.iteritems():
+            if topic_matches_sub(sub, msg.topic):
+                cb_lst.append(callback)
+    finally:
+        data.dtlock.release()
+
+    if not len(cb_lst):
+        raise RuntimeError("Dispatch table failed to match topic", topic)
+    else:
+        [callback(msg.topic, str(msg.payload.decode("utf-8"))) for callback in cb_lst]
 
 '''
 callback for paho on mqtt connected
@@ -66,6 +77,7 @@ class Mqtt:
         self.mqttc.on_disconnect = on_disconnect
 
         self.dispatch_table = dict()
+        self.dtlock = Lock()
 
 
     '''
@@ -102,9 +114,19 @@ class Mqtt:
     Add a topic and a callback for subscription
     '''
     def subscribe(self, topic, callback, qos=1):
-        if not topic in self.dispatch_table:
-            self.mqttc.subscribe(topic, qos)
-        self.dispatch_table[topic] = callback
+        self.dtlock.acquire()
+        try:
+            if not topic in self.dispatch_table:
+                self.mqttc.subscribe(topic, qos)
+            self.dispatch_table[topic] = callback
+        finally:
+            self.dtlock.release()
+
+    '''
+    True if the topic matches the subscription
+    '''
+    def topic_matches_sub(self, topic, sub):
+        return topic_matches_sub(sub, topic)
 
     '''
     publish a dict with topic, message pairs
@@ -136,4 +158,3 @@ class Mqtt:
             except socket.error:
                 log("Failed to connect... Retrying in {} seconds".format(self.retry_time))
                 sleep(self.retry_time)
-                self.retry_time = min(self.max_retry_time, self.retry_time*2)
