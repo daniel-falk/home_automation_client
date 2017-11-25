@@ -1,7 +1,7 @@
-#from gui import Gui
+from gui.window import Gui
 from mqtt.Connection import Mqtt
 from . import conf
-#from controlpanel.InterfacePanel import InterfacePanel
+from controlpanel.InterfacePanel import InterfacePanel
 from devices.devices import DeviceManager
 from devices.explore import DeviceExplorer
 
@@ -17,17 +17,10 @@ explorer = DeviceExplorer(mqtt, devices)
 explorer.find_class("IOUnit")
 
 # Create a panel object for the physical buttons and rotary encoder
-#panel = InterfacePanel()
-
-# Create a gui-object which will interact with the panel and our devices
-#gui = Gui(panel, devices)
-#gui.run()
-
-try:
-    while(True):
-        pass
-except KeyboardInterrupt:
-    pass
+with InterfacePanel() as panel:
+    # Create a gui-object which will interact with the panel and our devices
+    gui = Gui(dict(conf.items("GUI")), panel, devices)
+    gui.run()
 
 # Clean-up...
 mqtt.disconnect()
